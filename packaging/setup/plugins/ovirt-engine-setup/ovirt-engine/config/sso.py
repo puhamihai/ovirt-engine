@@ -106,6 +106,18 @@ class Plugin(plugin.PluginBase):
         self.environment[
             otopicons.CoreEnv.LOG_FILTER
         ].append(client_secret)
+        # The engine's own requests to SSO go to the loopback listener
+        # with its own worker when it is enabled, see
+        # ENGINE_SSO_SERVICE_LISTENER_ENABLED.
+        if config.getboolean('ENGINE_SSO_SERVICE_LISTENER_ENABLED'):
+            sso_service_url = (
+                'https://127.0.0.1:${ENGINE_SSO_SERVICE_LISTENER_PORT}'
+                '/ovirt-engine/sso'
+            )
+        else:
+            sso_service_url = (
+                'https://${ENGINE_FQDN}:%s/ovirt-engine/sso' % engine_port
+            )
 
         rc, stdout, stderr = self.execute(
             (
@@ -201,8 +213,7 @@ class Plugin(plugin.PluginBase):
                     'ENGINE_SSO_CLIENT_SECRET="{client_secret}"\n'
                     'ENGINE_SSO_AUTH_URL='
                     '"https://{fqdn}:{port}/ovirt-engine/sso"\n'
-                    'ENGINE_SSO_SERVICE_URL='
-                    '"https://{fqdn}:{port}/ovirt-engine/sso"\n'
+                    'ENGINE_SSO_SERVICE_URL="{sso_service_url}"\n'
                     'ENGINE_SSO_SERVICE_SSL_VERIFY_HOST=false\n'
                     'ENGINE_SSO_SERVICE_SSL_VERIFY_CHAIN=true\n'
                     'SSO_ALTERNATE_ENGINE_FQDNS=""\n'
@@ -217,6 +228,7 @@ class Plugin(plugin.PluginBase):
                         "${ENGINE_FQDN}"
                     ),
                     port=engine_port,
+                    sso_service_url=sso_service_url,
                     devenv=(
                         (
                             'SSO_CALLBACK_PREFIX_CHECK=false\n'

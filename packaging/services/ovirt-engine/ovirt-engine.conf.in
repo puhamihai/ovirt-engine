@@ -421,6 +421,13 @@ ENGINE_SSO_SERVICE_READ_TIMEOUT=30000
 # A request waiting here holds a worker thread, so keep it short. 0 means wait forever.
 ENGINE_SSO_SERVICE_CONNECTION_REQUEST_TIMEOUT=250
 
+# Serve the requests the engine sends to its own SSO service on a loopback listener with its own worker threads,
+# instead of through httpd and the worker that also serves the API requests waiting for them. engine-setup points
+# ENGINE_SSO_SERVICE_URL at this listener when it is enabled.
+ENGINE_SSO_SERVICE_LISTENER_ENABLED=true
+ENGINE_SSO_SERVICE_LISTENER_PORT=8709
+ENGINE_SSO_SERVICE_LISTENER_THREADS=16
+
 # level of protocol supported by the external OIDC server.
 EXTERNAL_OIDC_SSL_PROTOCOL=TLS
 

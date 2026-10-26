@@ -531,6 +531,10 @@
 
     <subsystem xmlns="urn:jboss:domain:io:1.1">
       <worker name="default"/>
+      {% if config.getboolean('ENGINE_SSO_SERVICE_LISTENER_ENABLED') %}
+      <!-- Worker of the "sso" listener, see below: -->
+      <worker name="sso" task-max-threads="{{ config.getinteger('ENGINE_SSO_SERVICE_LISTENER_THREADS') }}"/>
+      {% endif %}
       <buffer-pool name="default"/>
     </subsystem>
 
@@ -878,6 +882,16 @@
             socket-binding="ajp"
             redirect-socket="redirect"/>
         {% endif %}
+        {% if config.getboolean('ENGINE_SSO_SERVICE_LISTENER_ENABLED') %}
+        <!-- Loopback listener for the requests the engine sends to its own SSO
+             service. It has its own worker, so requests waiting for SSO cannot
+             take the threads needed to answer them: -->
+        <https-listener
+            name="sso"
+            socket-binding="sso"
+            worker="sso"
+            ssl-context="httpsSSC"/>
+        {% endif %}
 
         <host name="default-host" alias="localhost">
           <!-- Configure the compression filter so that it will compress all the
@@ -934,6 +948,11 @@
     <socket-binding
         name="ajp"
         port="{{ config.getinteger('ENGINE_AJP_PORT') }}"/>
+    {% endif %}
+    {% if config.getboolean('ENGINE_SSO_SERVICE_LISTENER_ENABLED') %}
+    <socket-binding
+        name="sso"
+        port="{{ config.getinteger('ENGINE_SSO_SERVICE_LISTENER_PORT') }}"/>
     {% endif %}
 
     <!-- The application server never listen on this port, but it is needed to
