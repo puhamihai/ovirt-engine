@@ -3,6 +3,7 @@ package org.ovirt.engine.core.aaa.filters;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.naming.InitialContext;
 import javax.servlet.Filter;
@@ -12,6 +13,7 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang.StringUtils;
 import org.ovirt.engine.core.aaa.SsoOAuthServiceUtils;
@@ -29,6 +31,12 @@ public class SsoRestApiAuthFilter implements Filter {
     private static final String scope = "ovirt-app-api";
     private static final String BASIC = "Basic";
     private static final String BEARER = "Bearer";
+    private static final String SSO_UNAVAILABLE = "ovirt_aaa_sso_unavailable";
+    private static final String RETRY_AFTER_SECONDS = "5";
+    private static final long UNAVAILABLE_LOG_INTERVAL_MS = 10000;
+
+    private final AtomicLong unavailableCount = new AtomicLong();
+    private volatile long unavailableLoggedAt;
 
     @Override
     public void init(FilterConfig filterConfig) {
@@ -42,6 +50,15 @@ public class SsoRestApiAuthFilter implements Filter {
         if (!FiltersHelper.isAuthenticated(req) || !FiltersHelper.isSessionValid((HttpServletRequest) request)) {
             log.debug("SsoRestApiAuthFilter authenticating with sso");
             authenticateWithSso(req);
+        }
+        if (req.getAttribute(SSO_UNAVAILABLE) != null) {
+            // SSO did not answer in time: ask the client to come back later, instead of letting the
+            // request go on unauthenticated and end up as a 401 that blames its credentials.
+            HttpServletResponse res = (HttpServletResponse) response;
+            res.setHeader("Retry-After", RETRY_AFTER_SECONDS);
+            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+                    "The authentication service is busy, retry later");
+            return;
         }
         chain.doFilter(request, response);
     }
@@ -93,12 +110,32 @@ public class SsoRestApiAuthFilter implements Filter {
                     SsoUtils.createUserSession(req, payload, false);
                 }
             } catch (Exception e) {
+                if (e.getMessage() != null
+                        && e.getMessage().startsWith(SsoOAuthServiceUtils.TEMPORARILY_UNAVAILABLE + ":")) {
+                    req.setAttribute(SSO_UNAVAILABLE, true);
+                    logUnavailable(e.getMessage());
+                    return;
+                }
                 req.setAttribute(
                         SessionConstants.SSO_AUTHENTICATION_ERR_MSG,
                         e.getMessage());
                 log.error("Cannot authenticate using authentication Headers: {}", e.getMessage());
                 log.debug("Cannot authenticate using authentication Headers", e);
             }
+        }
+    }
+
+    /**
+     * During a storm every rejected request would log an error; log one warning per interval with a count instead.
+     */
+    private void logUnavailable(String message) {
+        long count = unavailableCount.incrementAndGet();
+        long now = System.currentTimeMillis();
+        if (now - unavailableLoggedAt >= UNAVAILABLE_LOG_INTERVAL_MS) {
+            unavailableLoggedAt = now;
+            unavailableCount.addAndGet(-count);
+            log.warn("SSO did not answer in time ({}), {} request(s) answered with 503 since the last warning",
+                    message, count);
         }
     }
 

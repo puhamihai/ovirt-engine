@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -52,6 +53,13 @@ public class SsoOAuthServiceUtils {
     private static final String authzSearchScope = "ovirt-ext=token-info:authz-search";
     private static final String publicAuthzSearchScope = "ovirt-ext=token-info:public-authz-search";
 
+    /**
+     * OAuth 2.0 error code (RFC 6749, section 4.1.2.1) returned when the SSO service did not answer in time: no
+     * connection to it could be leased from the pool, opened or read before its timeout. Callers can tell this
+     * apart from a failed authentication and ask the client to retry later instead of rejecting it.
+     */
+    public static final String TEMPORARILY_UNAVAILABLE = "temporarily_unavailable";
+
     // Reference to the HTTP client used to send the requests to the SSO server:
     private static volatile CloseableHttpClient client;
     private static final ObjectMapper mapper;
@@ -79,6 +87,8 @@ public class SsoOAuthServiceUtils {
             form.add(new BasicNameValuePair("scope", scope));
             request.setEntity(new UrlEncodedFormEntity(form, StandardCharsets.UTF_8));
             return getResponse(request);
+        } catch (InterruptedIOException ex) {
+            return buildMapWithError(TEMPORARILY_UNAVAILABLE, ex.getMessage());
         } catch (Exception ex) {
             return buildMapWithError("server_error", ex.getMessage());
         }
@@ -200,6 +210,8 @@ public class SsoOAuthServiceUtils {
                 }
             }
             return jsonData;
+        } catch (InterruptedIOException ex) {
+            return buildMapWithError(TEMPORARILY_UNAVAILABLE, ex.getMessage());
         } catch (Exception ex) {
             return buildMapWithError("server_error", ex.getMessage());
         }
